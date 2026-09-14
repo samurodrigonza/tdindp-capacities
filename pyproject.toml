@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tdindp-capacities"
+version = "0.1.0"
+description = "Solver-free reader for the tdINDP network instance and its Pareto arc capacities"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = ["pandas>=1.0"]
+
+[tool.setuptools]
+packages = ["tdindp_capacities"]
+
+[tool.setuptools.package-data]
+tdindp_capacities = []
