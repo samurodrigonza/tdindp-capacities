@@ -1,8 +1,11 @@
 # tdindp-capacities
 
-A small, solver-free package that reads the tdINDP interdependent-network
-instance (Gas / Power / Water) and — the point of the whole thing —
-explains **where the arc capacities actually come from**.
+A small package that reads the tdINDP interdependent-network instance
+(Gas / Power / Water), optionally generates its capacity frontier with
+Gurobi, and explains **where the arc capacities actually come from**.
+
+**Reading existing data is solver-free; generating capacities requires
+Gurobi and a valid license.**
 
 It exists because that answer is genuinely surprising:
 
@@ -30,6 +33,7 @@ u = load_capacities()     # -> {('Gas_node_9','Gas_node_0','Gas',0): 47.0, ...}
 |---|---|
 | `tdindp_capacities/networks.py` | solver-free rewrite of the CSV loader: sets, `b`, `c`, `f`, `q`, `gamma` |
 | `tdindp_capacities/capacities.py` | **the capacity story** — frontier reader, row selection, diagnostics |
+| `tdindp_capacities/generation.py` | optional Gurobi implementation of the original capacity-generation routine |
 | `data/` | the instance CSVs plus `pareto_of_capacities.csv` |
 | `example.py` | runnable, annotated walkthrough of everything below |
 
@@ -38,7 +42,9 @@ pip install -r requirements.txt
 python example.py
 ```
 
-Requires only `pandas`. No Gurobi, no license.
+The reader and `example.py` require only `pandas`: no Gurobi or license.
+Running `build_capacity_frontier()` additionally requires `gurobipy` and
+a valid Gurobi license; installation and usage are documented below.
 
 ---
 
@@ -259,19 +265,19 @@ Both return `{(tail, head, network, t): capacity}` with 360 entries.
 
 ## Regenerating the frontier
 
-Not supported here — it needs Gurobi and the full tdINDP model. Set
-`build = True` in the original `find_capacities()` if you must. If you do,
-record the resulting row count and your selected row somewhere durable,
-and switch the selection to `-1` or a named constant.
+Use `build_capacity_frontier()` with Gurobi and a valid license, as described
+below. It implements the original `build = True` path for the shipped nominal
+configuration. Record the resulting row count and your selected row somewhere
+durable, and select explicitly from the generated frontier rather than
+inheriting the historical default row.
 
 ---
 
 ## Added: cleaned source capacity generator
 
-The existing walkthrough above is retained. Its statement that regeneration
-is unsupported describes the original reader-only version; regeneration is
-now available through `tdindp_capacities/generation.py`. Reading the shipped
-frontier still requires only pandas and does not import Gurobi.
+The historical walkthrough above is retained. Regeneration is now available
+through `tdindp_capacities/generation.py`. Reading the shipped frontier still
+requires only pandas and does not import Gurobi.
 
 This module is a cleaned extraction of the `build = True` branch of
 `find_capacities()` in `stochasticFairness/src/tdINDP_parameters_build.py`,
