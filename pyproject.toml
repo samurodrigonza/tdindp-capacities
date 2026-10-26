@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.7"
 dependencies = ["pandas>=1.0"]
 
+[project.optional-dependencies]
+gurobi = ["gurobipy"]
+
 [tool.setuptools]
 packages = ["tdindp_capacities"]
 

@@ -18,6 +18,7 @@ from .capacities import (
     load_frontier,
 )
 from .networks import DATA_DIR, NETWORKS, Networks, load_networks
+from .generation import build_capacity_frontier
 
 __all__ = [
     "DATA_DIR",
@@ -26,6 +27,7 @@ __all__ = [
     "NETWORKS",
     "OBJECTIVE_COLUMNS",
     "CapacityFrontier",
+    "build_capacity_frontier",
     "Networks",
     "compare_to_nominal",
     "load_capacities",

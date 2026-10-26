@@ -263,3 +263,151 @@ Not supported here — it needs Gurobi and the full tdINDP model. Set
 `build = True` in the original `find_capacities()` if you must. If you do,
 record the resulting row count and your selected row somewhere durable,
 and switch the selection to `-1` or a named constant.
+
+---
+
+## Added: cleaned source capacity generator
+
+The existing walkthrough above is retained. Its statement that regeneration
+is unsupported describes the original reader-only version; regeneration is
+now available through `tdindp_capacities/generation.py`. Reading the shipped
+frontier still requires only pandas and does not import Gurobi.
+
+This module is a cleaned extraction of the `build = True` branch of
+`find_capacities()` in `stochasticFairness/src/tdINDP_parameters_build.py`,
+using its shipped nominal configuration: `T = [0]`, no damaged components,
+and an empty critical-demand-node set. It is not the downstream
+disruption/restoration optimizer; other horizons are rejected explicitly.
+
+### Why perform the multiobjective sweep?
+
+Minimizing the sum of capacities finds a low-total-capacity network that
+can carry the nominal flows. However, alternative routes can be left with
+near-zero capacity because they are unnecessary for that particular nominal
+flow. Those bottlenecks can unduly restrict later flow-allocation experiments.
+
+The second objective maximizes `sum(log(u))`. Its marginal gain is `1/u`,
+so increasing a small capacity is rewarded more than increasing an already
+large one. The sweep exposes how much additional aggregate capacity this
+balancing requires instead of choosing an arbitrary weighted sum:
+
+1. Minimize `sum(u)` under the nominal flow constraints.
+2. For each layer, take its maximum capacity from that solution as an upper
+   bound. Maximize `sum(log(u))` with `log(u) <= log(layer_max)`.
+3. Re-solve the log objective with `sum(u) <= previous_total * epsilon`,
+   starting at `epsilon = 1` and multiplying epsilon by `0.99` each iteration.
+   Retain distinct feasible solutions while the previous feasible total
+   exceeds the minimum objective and epsilon exceeds `0.1`. An infeasible
+   iteration does not end the loop: epsilon still decreases and the previous
+   feasible total remains unchanged, exactly as in the source.
+
+The original excess-supply and unmet-demand variables are retained.
+Unmet demand is explicitly fixed to zero. Excess supply is not independently
+fixed or minimized in this routine; with balanced nominal supply and demand,
+zero excess follows from flow conservation and nonnegativity, up to solver
+tolerances. Reverse directions share capacity. These are modeled
+directed-capacity sums, not monetary investment costs or guarantees of
+disruption resilience.
+
+### Run the generator
+
+Use a compatible Python/Gurobi installation and a valid Gurobi license.
+No Gurobi version or log-approximation setting is imposed by this extraction.
+To retain an existing solver version, install that version first. From a
+checkout of this repository:
+
+```powershell
+python -m pip install -e ".[gurobi]"
+```
+
+```python
+from tdindp_capacities import build_capacity_frontier, load_networks
+
+frontier = build_capacity_frontier(
+    load_networks(),
+    filename="pareto_regenerated.csv",
+)
+print(frontier.summary_table())
+u = frontier.capacities(row=-1)
+```
+
+The output has the existing reader's CSV format: capacity tuple columns,
+`sum_u`, `sum_log_u`, and the pandas index. An existing output file is
+rejected, never overwritten. `load_capacities()` continues to read the
+unchanged historical frontier and select row 18; a new frontier must be
+selected explicitly through the returned object or `load_frontier(filename=...)`.
+The optional arguments `epsilon`, `epsilon_decay`, and `epsilon_floor`
+expose the original sweep constants.
+
+### Source cleanup and reproducibility
+
+Cleanup is limited to module organization, formatting, lazy solver imports,
+resource disposal, explicit failure reporting, and a safe output filename.
+The optimization semantics and historical bookkeeping are intentionally
+retained, including behavior that a corrected formulation might change:
+
+- Node/arc binary variables, the three flow/functionality capacity
+  constraints, excess/shortage variables, and the unoptimized total-cost
+  equality remain. Only restoration blocks with no entries in the shipped
+  single-period nominal configuration are omitted.
+- Capacity and logarithm variables keep their original default nonnegative
+  bounds. Log constraints remain in the minimum-capacity model as well as
+  the fairness models; no explicit `u >= 1` constraint is added.
+- Repeated endpoint entries are not deduplicated. Variable creation,
+  dictionary overwriting, `getVarByName` lookups, and extraction from
+  `getVars()` follow the source. This intentionally retains its distinction
+  between repeated model variables and unique exported capacity keys.
+- The first solution's `sum_u` is the minimum model's objective, and its
+  `sum_log_u` is computed from the extracted capacity dictionary. Later
+  solutions sum all capacity-named model variables for `sum_u` and use
+  `log(value + 1e-6)` for `sum_log_u`, exactly as the source does.
+- Only `OutputFlag = 0` and `InfUnbdInfo = 1` are set, as in the source.
+  Logarithm handling and feasibility tolerances remain solver defaults.
+- The original dependency guard uses the node variable left over from the
+  preceding arc loop. That guard is retained, not silently corrected.
+- The loop keeps the original exact total comparison, multiplicative epsilon
+  schedule, and dictionary-equality duplicate check. There is no new
+  budget-based early stop. Infeasible iterations emit a warning and continue;
+  failed anchors and unexpected solver failures raise an error.
+
+This is source fidelity, not a guarantee of bit-for-bit reproduction of an
+old run on another solver installation. Multiple minimum-capacity solutions
+can yield different layer maxima, which then set the later logarithm bounds.
+No archived-versus-regenerated output comparison is performed by the tests.
+
+A few clarifications to the retained historical narrative above: the
+unbudgeted fairness anchor initializes the sweep but is not separately
+exported; the first exported fairness point is a budgeted re-solve. The
+archived minimum vector sums to approximately `10,048.79`, rather than its
+stored `sum_u = 10,060.76`; the discrepancy matches the repeated endpoint's
+capacity, not evidence of a separate solve. The source does not establish
+that row 18 is a universal knee or record a formal selection policy.
+
+Focused checks cover model construction and sweep control flow, without
+running or comparing full frontiers. Model-construction checks require the
+optional dependency and license:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+### Machine used to generate the archived frontier
+
+The author reports that the existing `data/pareto_of_capacities.csv` used
+in the original experiments was generated on the following machine:
+
+| Component | Specification |
+|---|---|
+| Device name | `DESKTOP-OJKJ4ND` |
+| Processor | AMD Ryzen 3 2300U with Radeon Vega Mobile Gfx, 2.00 GHz |
+| Installed memory | 12.0 GB RAM (10.9 GB usable) |
+| Storage | 932 GB SSD, CT1000BX500SSD1 |
+| Graphics | AMD Radeon Vega 6 Graphics (1010 MB reported) |
+| System type | 64-bit operating system, x64-based processor |
+
+These details describe the historical generation machine, not a required
+configuration for running this package. The Python version, Gurobi version,
+operating-system version, and any solver settings beyond those in the source
+have not been supplied; the hardware information alone does not establish
+them. Device and Windows product identifiers are omitted because they are
+not needed to reproduce the computation.
