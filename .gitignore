@@ -5,3 +5,4 @@ build/
 dist/
 .venv/
 data/pareto_regenerated.csv
+data/*_logs/

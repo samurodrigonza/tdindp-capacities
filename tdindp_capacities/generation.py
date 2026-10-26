@@ -11,13 +11,17 @@ import ast
 import logging
 import math
 import os
+import platform
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from time import perf_counter
+from typing import Optional
 
 import pandas as pd
 
 from .capacities import CapacityFrontier, load_frontier
 from .networks import DATA_DIR, Networks
-
-LOGGER = logging.getLogger(__name__)
 
 
 def _gurobi():
@@ -31,7 +35,53 @@ def _gurobi():
     return gp
 
 
-def _capacity_model(networks: Networks):
+@contextmanager
+def _run_logging(output_path: str, log_dir: Optional[str]):
+    if log_dir is None:
+        log_dir = os.path.splitext(os.path.abspath(output_path))[0] + "_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    prefix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-")
+    run_dir = tempfile.mkdtemp(prefix=prefix, dir=os.path.abspath(log_dir))
+    logger = logging.Logger(__name__, level=logging.INFO)
+    file_handler = logging.FileHandler(
+        os.path.join(run_dir, "progress.log"), encoding="utf-8"
+    )
+    console_handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    for handler in (file_handler, console_handler):
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    start = perf_counter()
+    completed = False
+    try:
+        logger.info("Run started; output=%s; logs=%s", os.path.abspath(output_path), run_dir)
+        yield logger, run_dir
+        completed = True
+    finally:
+        if not completed:
+            logger.error(
+                "Run failed or interrupted after %.3fs; no successful completion recorded",
+                perf_counter() - start, exc_info=True,
+            )
+        for handler in (file_handler, console_handler):
+            logger.removeHandler(handler)
+            handler.close()
+
+
+def _optimize_logged(model, stage: str, logger, solver_log: str) -> None:
+    model.write(os.path.splitext(solver_log)[0] + ".prm")
+    logger.info("%s: optimize started; solver_log=%s", stage, solver_log)
+    start = perf_counter()
+    model.optimize()
+    logger.info(
+        "%s: optimize finished; status=%s; elapsed=%.3fs; solutions=%s",
+        stage, model.Status, perf_counter() - start, model.SolCount,
+    )
+    if model.SolCount > 0:
+        logger.info("%s: objective=%.12g", stage, model.ObjVal)
+
+
+def _capacity_model(networks: Networks, solver_log: Optional[str] = None):
     """Build tdINDP_free_cap for the original nominal, single-period inputs."""
     gp = _gurobi()
     K, T = networks.K, networks.T
@@ -39,6 +89,10 @@ def _capacity_model(networks: Networks):
     b, gamma = networks.b, networks.gamma
     model = gp.Model("tdINDP")
     model.setParam(gp.GRB.Param.OutputFlag, 0)
+    if solver_log is not None:
+        model.setParam("LogFile", solver_log)
+        model.setParam("LogToConsole", 0)
+        model.setParam("OutputFlag", 1)
     model.setParam("InfUnbdInfo", 1)
 
     demand = {k: [i for i in N_k[k] if b[(i, k, k, 0)] < 0] for k in K}
@@ -215,12 +269,14 @@ def build_capacity_frontier(
     epsilon: float = 1.0,
     epsilon_decay: float = 0.99,
     epsilon_floor: float = 0.1,
+    log_dir: Optional[str] = None,
 ) -> CapacityFrontier:
     """Run the source's single-period nominal sweep, saving to a new CSV.
 
     Defaults retain the original epsilon schedule. The historical frontier
-    and the reader's default selection are not modified. No extra capacity
-    bounds, solver settings, balance checks, or early stopping rules are added.
+    and the reader's default selection are not modified. Each invocation gets
+    a unique log directory under log_dir, or beside the output CSV by default.
+    Only logging settings change; mathematical solver settings are preserved.
     """
     path = os.path.join(data_dir, filename)
     if os.path.exists(path):
@@ -237,10 +293,32 @@ def build_capacity_frontier(
         raise ValueError("epsilon_decay must be in (0, 1)")
     if not 0 < epsilon_floor < epsilon:
         raise ValueError("epsilon_floor must be in (0, epsilon)")
-    gp = _gurobi()
+    with _run_logging(path, log_dir) as (logger, run_dir):
+        return _generate_frontier(
+            networks, data_dir, filename, epsilon, epsilon_decay, epsilon_floor,
+            logger, run_dir,
+        )
 
-    with _capacity_model(networks) as model:
-        model.optimize()
+
+def _generate_frontier(
+    networks, data_dir, filename, epsilon, epsilon_decay, epsilon_floor, logger, run_dir,
+) -> CapacityFrontier:
+    path = os.path.join(data_dir, filename)
+    gp = _gurobi()
+    start = perf_counter()
+    logger.info(
+        "Environment: Python=%s; Gurobi=%s; platform=%s; logical_cpus=%s",
+        platform.python_version(), gp.gurobi.version(), platform.platform(), os.cpu_count(),
+    )
+    logger.info(
+        "Schedule: epsilon=%g; epsilon_decay=%g; epsilon_floor=%g; layers=%s; periods=%s",
+        epsilon, epsilon_decay, epsilon_floor, networks.K, networks.T,
+    )
+
+    solver_log = os.path.join(run_dir, "minimum-anchor.log")
+    logger.info("Minimum-capacity anchor: building model")
+    with _capacity_model(networks, solver_log=solver_log) as model:
+        _optimize_logged(model, "Minimum-capacity anchor", logger, solver_log)
         if model.Status != gp.GRB.OPTIMAL:
             raise RuntimeError(f"Minimum-capacity anchor failed: status {model.Status}")
         optimal_total = model.ObjVal
@@ -249,10 +327,13 @@ def build_capacity_frontier(
         k: max(minimum[(i, j, k, 0)] for i, j in networks.A_k[k])
         for k in networks.K
     }
+    logger.info("Minimum objective=%.12g; layer upper bounds=%s", optimal_total, upper_bounds)
 
-    with _capacity_model(networks) as model:
+    solver_log = os.path.join(run_dir, "fairness-anchor.log")
+    logger.info("Fairness anchor: building model")
+    with _capacity_model(networks, solver_log=solver_log) as model:
         _set_fairness_objective(model, networks, upper_bounds)
-        model.optimize()
+        _optimize_logged(model, "Fairness anchor", logger, solver_log)
         if model.Status != gp.GRB.OPTIMAL:
             raise RuntimeError(f"Fairness anchor failed: status {model.Status}")
         actual_total = sum(_capacity_values(model).values())
@@ -260,8 +341,15 @@ def build_capacity_frontier(
     minimum["sum_log_u"] = sum(math.log(value) for value in minimum.values())
     minimum["sum_u"] = optimal_total
     solutions = [minimum]
+    iteration = 0
     while actual_total > optimal_total and epsilon > epsilon_floor:
-        with _capacity_model(networks) as model:
+        iteration += 1
+        solver_log = os.path.join(run_dir, f"sweep-{iteration:04d}.log")
+        logger.info(
+            "Sweep %d: building model; epsilon=%.12g; budget=%.12g; retained_points=%d",
+            iteration, epsilon, actual_total * epsilon, len(solutions),
+        )
+        with _capacity_model(networks, solver_log=solver_log) as model:
             _set_fairness_objective(model, networks, upper_bounds)
             model.addConstr(
                 gp.quicksum(
@@ -270,7 +358,7 @@ def build_capacity_frontier(
                 ) <= actual_total * epsilon
             )
             model.update()
-            model.optimize()
+            _optimize_logged(model, f"Sweep {iteration}", logger, solver_log)
             if model.Status == gp.GRB.OPTIMAL:
                 actual = _capacity_values(model)
                 actual_total = sum(
@@ -283,8 +371,14 @@ def build_capacity_frontier(
                 actual["sum_u"] = actual_total
                 if actual not in solutions:
                     solutions.append(actual)
+                    logger.info(
+                        "Sweep %d: accepted point; sum_u=%.12g; sum_log_u=%.12g; retained_points=%d",
+                        iteration, actual_total, actual["sum_log_u"], len(solutions),
+                    )
+                else:
+                    logger.info("Sweep %d: duplicate point; not appended", iteration)
             elif model.Status in (gp.GRB.INFEASIBLE, gp.GRB.INF_OR_UNBD):
-                LOGGER.warning(
+                logger.warning(
                     "No solution at epsilon=%g, budget=%g (status=%s); continuing sweep",
                     epsilon, actual_total * epsilon, model.Status,
                 )
@@ -292,8 +386,18 @@ def build_capacity_frontier(
                 raise RuntimeError(f"Capacity sweep failed: status {model.Status}")
         epsilon *= epsilon_decay
 
+    logger.info(
+        "Sweep ended: iterations=%d; epsilon=%.12g; last_total=%.12g; minimum_objective=%.12g",
+        iteration, epsilon, actual_total, optimal_total,
+    )
     data = {key: [float(solution[key]) for solution in solutions] for key in solutions[0]}
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    logger.info("Writing %d points to %s", len(solutions), os.path.abspath(path))
     with open(path, "x", encoding="utf-8", newline="") as stream:
         pd.DataFrame(data, columns=data.keys()).to_csv(stream)
-    return load_frontier(data_dir=data_dir, filename=filename)
+    frontier = load_frontier(data_dir=data_dir, filename=filename)
+    logger.info(
+        "Run completed: points=%d; capacity_columns=%d; elapsed=%.3fs; output=%s",
+        frontier.n_points, frontier.n_arcs, perf_counter() - start, os.path.abspath(path),
+    )
+    return frontier
