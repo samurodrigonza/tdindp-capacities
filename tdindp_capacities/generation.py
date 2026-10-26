@@ -1,8 +1,9 @@
-"""The nominal build branch of stochasticFairness's find_capacities routine.
+"""Nominal capacity generation based on the original find_capacities routine.
 
-This extraction retains the source's formulation, Gurobi defaults, duplicate
-endpoint behavior, and objective bookkeeping. It uses the source's shipped
-configuration: T = [0], no damaged components, and no critical-demand nodes.
+This extraction retains the source's Gurobi defaults, duplicate endpoint
+behavior, and objective bookkeeping, but corrects the dependency guard to
+use actual provider nodes. It uses the source's shipped configuration:
+T = [0], no damaged components, and no critical-demand nodes.
 """
 
 from __future__ import annotations
@@ -94,7 +95,7 @@ def _capacity_model(
     solver_log: Optional[str] = None,
     func_nonlinear: Optional[int] = None,
 ):
-    """Build tdINDP_free_cap for the original nominal, single-period inputs."""
+    """Build the nominal model with provider-indexed interdependencies."""
     gp = _gurobi()
     K, T = networks.K, networks.T
     N_k, A_k, L_k = networks.N_k, networks.A_k, networks.L_k
@@ -205,17 +206,19 @@ def _capacity_model(
                     name="A_5_" + str((k, i, j, t)),
                 )
 
-    # The source guard uses i left over from the preceding arc loop.
-    # Retain it rather than silently changing which dependencies are imposed.
     for k in K:
         for k_tilde in K:
             for j in N_k[k_tilde]:
                 for t in T:
-                    if (i, j, k, k_tilde, t) in gamma:
+                    providers = [
+                        i_dep for i_dep in N_k[k]
+                        if (i_dep, j, k, k_tilde, t) in gamma
+                    ]
+                    if providers:
                         model.addConstr(
                             gp.quicksum(
-                                w[(i, k, t)] * gamma[(i, j, k, k_tilde, t)]
-                                for i in N_k[k]
+                                w[(i_dep, k, t)] * gamma[(i_dep, j, k, k_tilde, t)]
+                                for i_dep in providers
                             ) >= w[(j, k_tilde, t)],
                             name="A_7_" + str((k, k_tilde, j, t)),
                         )
@@ -286,12 +289,12 @@ def build_capacity_frontier(
     log_dir: Optional[str] = None,
     func_nonlinear: Optional[int] = None,
 ) -> CapacityFrontier:
-    """Run the source's single-period nominal sweep, saving to a new CSV.
+    """Run the nominal sweep with corrected dependencies, saving to a new CSV.
 
     Defaults retain the original epsilon schedule. The historical frontier
     and the reader's default selection are not modified. Each invocation gets
     a unique log directory under log_dir, or beside the output CSV by default.
-    By default only logging settings change. With Gurobi 11+, explicitly pass
+    Solver settings change only for logging by default. With Gurobi 11+, pass
     func_nonlinear=1 for nonlinear logs or 0 for static piecewise-linear logs.
     None leaves the solver's log-handling setting untouched. MIPGap is never
     overridden.

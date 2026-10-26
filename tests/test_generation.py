@@ -204,6 +204,69 @@ class GenerationTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("gurobipy"), "Gurobi is optional")
 class FormulationTests(unittest.TestCase):
+    def test_dependencies_use_actual_providers_and_preserve_coefficients(self):
+        network = small_network()
+        network.N_k["test"].append("c")
+        network.b[("c", "test", "test", 0)] = 0
+        network.gamma = {
+            ("a", "b", "test", "test", 0): 2,
+            ("c", "b", "test", "test", 0): 1,
+        }
+        with _capacity_model(network) as model:
+            constraint = model.getConstrByName("A_7_('test', 'test', 'b', 0)")
+            self.assertIsNotNone(constraint)
+            self.assertEqual(constraint.Sense, ">")
+            self.assertEqual(constraint.RHS, 0)
+            row = model.getRow(constraint)
+            coefficients = {
+                row.getVar(i).VarName: row.getCoeff(i) for i in range(row.size())
+            }
+            self.assertEqual(
+                coefficients,
+                {"w_('a', 'test', 0)": 2, "w_('c', 'test', 0)": 1,
+                 "w_('b', 'test', 0)": -1},
+            )
+            self.assertIsNone(model.getConstrByName("A_7_('test', 'test', 'a', 0)"))
+
+    def test_cross_layer_dependency_blocks_service_when_all_providers_are_off(self):
+        import gurobipy as gp
+
+        network = small_network()
+        network.A_k["test"] = [("a", "b"), ("b", "a")]
+        network.K.insert(0, "provider")
+        network.N_k["provider"] = ["p", "q", "r"]
+        network.A_k["provider"] = [("p", "q"), ("q", "p"), ("q", "r"), ("r", "q")]
+        network.L_k["provider"] = ["provider"]
+        network.b.update({(i, "provider", "provider", 0): 0 for i in ("p", "q", "r")})
+        network.c.update({
+            (i, j, "provider", "provider", 0): 1
+            for i, j in network.A_k["provider"]
+        })
+        network.gamma = {
+            ("p", "b", "provider", "test", 0): 1,
+            ("q", "b", "provider", "test", 0): 1,
+            ("r", "a", "provider", "test", 1): 1,
+        }
+        with _capacity_model(network, func_nonlinear=1) as model:
+            dependencies = [
+                c for c in model.getConstrs() if c.ConstrName.startswith("A_7_")
+            ]
+            self.assertEqual(len(dependencies), 1)
+            row = model.getRow(dependencies[0])
+            self.assertEqual(
+                {row.getVar(i).VarName: row.getCoeff(i) for i in range(row.size())},
+                {"w_('p', 'provider', 0)": 1, "w_('q', 'provider', 0)": 1,
+                 "w_('b', 'test', 0)": -1},
+            )
+            model.getVarByName("w_('p', 'provider', 0)").UB = 0
+            other_provider = model.getVarByName("w_('q', 'provider', 0)")
+            other_provider.UB = 0
+            model.optimize()
+            self.assertEqual(model.Status, gp.GRB.INFEASIBLE)
+            other_provider.LB = other_provider.UB = 1
+            model.optimize()
+            self.assertEqual(model.Status, gp.GRB.OPTIMAL)
+
     def test_real_solver_writes_progress_and_parameter_files(self):
         import gurobipy as gp
 

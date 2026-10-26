@@ -93,7 +93,7 @@ print("largest decrease       : %+.2f" % cmp["delta"].min())
 print("\nMost-changed arcs:")
 print(cmp.reindex(cmp["delta"].abs().sort_values(ascending=False).index)
          .head(8).to_string(index=False))
-print("\nIf you report 'capacities from GasArcs.csv' in a paper, that is wrong.")
+print("\nThe selected capacities come from the calibrated frontier, not the source arc files.")
 
 # ---------------------------------------------------------------------------
 rule("5. Fairness is what row 18 buys you")

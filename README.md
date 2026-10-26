@@ -15,8 +15,10 @@ It exists because that answer is genuinely surprising:
 > pre-computed Pareto frontier, `pareto_of_capacities.csv`.
 > **Zero of the 360 arcs keep their CSV value.**
 
-If you have ever written "arc capacities are taken from the network data
-files" in a paper draft describing this instance, that sentence is wrong.
+The source files provide the network topology and nominal capacity values;
+the default capacity selection comes from the calibrated frontier instead.
+This distinction documents the values actually used, not a general
+assessment of the source dataset's reliability.
 
 ```python
 from tdindp_capacities import load_networks, load_capacities
@@ -33,7 +35,7 @@ u = load_capacities()     # -> {('Gas_node_9','Gas_node_0','Gas',0): 47.0, ...}
 |---|---|
 | `tdindp_capacities/networks.py` | solver-free rewrite of the CSV loader: sets, `b`, `c`, `f`, `q`, `gamma` |
 | `tdindp_capacities/capacities.py` | **the capacity story** — frontier reader, row selection, diagnostics |
-| `tdindp_capacities/generation.py` | optional Gurobi implementation of the original capacity-generation routine |
+| `tdindp_capacities/generation.py` | optional Gurobi capacity generator with corrected dependency indexing |
 | `data/` | the instance CSVs plus `pareto_of_capacities.csv` |
 | `example.py` | runnable, annotated walkthrough of everything below |
 
@@ -267,7 +269,8 @@ Both return `{(tail, head, network, t): capacity}` with 360 entries.
 
 Use `build_capacity_frontier()` with Gurobi and a valid license, as described
 below. It implements the original `build = True` path for the shipped nominal
-configuration. Record the resulting row count and your selected row somewhere
+configuration, with the dependency-indexing correction documented below.
+Record the resulting row count and your selected row somewhere
 durable, and select explicitly from the generated frontier rather than
 inheriting the historical default row.
 
@@ -279,11 +282,18 @@ The historical walkthrough above is retained. Regeneration is now available
 through `tdindp_capacities/generation.py`. Reading the shipped frontier still
 requires only pandas and does not import Gurobi.
 
-This module is a cleaned extraction of the `build = True` branch of
-`find_capacities()` in `stochasticFairness/src/tdINDP_parameters_build.py`,
+This module is based on the `build = True` branch of the original
+`find_capacities()` routine in `tdINDP_parameters_build.py`,
 using its shipped nominal configuration: `T = [0]`, no damaged components,
 and an empty critical-demand-node set. It is not the downstream
 disruption/restoration optimizer; other horizons are rejected explicitly.
+
+Capacity calibration uses an undisrupted nominal network with all components
+available; it does not simulate component failures. Node and arc functionality
+binaries remain in the model rather than being fixed to one. Functional
+dependency constraints are included, and an all-functional assignment
+satisfies them for this instance. The layers share an aggregate capacity
+budget, so their capacity allocations are not independent design problems.
 
 ### Why perform the multiobjective sweep?
 
@@ -292,7 +302,16 @@ can carry the nominal flows. However, alternative routes can be left with
 near-zero capacity because they are unnecessary for that particular nominal
 flow. Those bottlenecks can unduly restrict later flow-allocation experiments.
 
-The second objective maximizes `sum(log(u))`. Its marginal gain is `1/u`,
+The logarithmic objective is motivated by the proportional-fairness and
+Nash-welfare ideas discussed by Apoorva M. Sampat and Victor M. Zavala
+(2019), [*Fairness measures for decision-making and conflict resolution*,
+Optimization and Engineering, 20, 1249–1272](https://doi.org/10.1007/s11081-019-09452-3).
+For positive allocations, maximizing their product is equivalent to
+maximizing the sum of their logarithms. Here, that idea is adapted to arc
+capacities as a balancing criterion, not a claim of fairness among people
+or a guarantee of equal capacities.
+
+The second objective therefore maximizes `sum(log(u))`. Its marginal gain is `1/u`,
 so increasing a small capacity is rewarded more than increasing an already
 large one. The sweep exposes how much additional aggregate capacity this
 balancing requires instead of choosing an arbitrary weighted sum:
@@ -347,10 +366,10 @@ expose the original sweep constants.
 
 ### Source cleanup and reproducibility
 
-Cleanup is limited to module organization, formatting, lazy solver imports,
+The extraction provides module organization, formatting, lazy solver imports,
 resource disposal, explicit failure reporting, and a safe output filename.
-The optimization semantics and historical bookkeeping are intentionally
-retained, including behavior that a corrected formulation might change:
+The dependency guard is corrected as described below; otherwise, the source
+formulation and historical bookkeeping are retained:
 
 - Node/arc binary variables, the three flow/functionality capacity
   constraints, excess/shortage variables, and the unoptimized total-cost
@@ -373,8 +392,13 @@ retained, including behavior that a corrected formulation might change:
   logarithm handling, feasibility tolerances, and other mathematical solver
   settings remain unchanged. Explicit log-mode selection is available as
   documented below.
-- The original dependency guard uses the node variable left over from the
-  preceding arc loop. That guard is retained, not silently corrected.
+- The original dependency guard used a node variable left over from the
+  preceding arc loop and constructed no dependency constraints for this
+  instance. The generator now collects the actual providers for each
+  dependent node, source layer, and time before imposing the weighted
+  functionality inequality. The 27 dependency relationships produce 21
+  grouped constraints. This is an explicit correction, not a claim that
+  the historical generation enforced those constraints.
 - The loop keeps the original exact total comparison, multiplicative epsilon
   schedule, and dictionary-equality duplicate check. There is no new
   budget-based early stop. Infeasible iterations emit a warning and continue;
@@ -489,9 +513,8 @@ The `func_nonlinear` argument makes the logarithm representation explicit for
 | `0` | Use Gurobi's static piecewise-linear approximation |
 | `1` | Use nonlinear function constraints with dynamic outer approximation rather than a static log approximation |
 
-Explicit selection requires Gurobi 11 or newer. This is the same
-`FuncNonlinear` switch used in the stochastic project's Gurobi configuration;
-its other numerical settings are not imported.
+Explicit selection requires Gurobi 11 or newer and sets Gurobi's
+`FuncNonlinear` parameter. It does not change other numerical settings.
 
 For an exact-nonlinear-log run:
 
@@ -520,10 +543,10 @@ and optimality tolerances still apply. Selecting nonlinear rather than
 piecewise-linear logs is an explicit run configuration, and can change the
 returned capacity vector and subsequent layer bounds. No claim is made that
 the archived experiment used this setting; its original solver logs are not
-available. The original frontier remains unchanged and remains the artifact
-used in the original papers.
+available. The original frontier and the reader's default selection remain
+unchanged.
 
-### Completed regeneration: 26 October 2026
+### Completed regeneration before the dependency correction: 26 October 2026
 
 The full sweep completed in **80.47 seconds** with Python 3.8.0, Gurobi
 11.0.3, `FuncNonlinear=1`, and the unchanged effective
@@ -533,11 +556,11 @@ a separate machine/configuration from the historical generation machine
 listed above. The default-mode attempt was stopped; it did not produce a
 completed frontier.
 
-The author generated the archived frontier approximately four years before
-this rerun and used that archived artifact in the original papers. The
-original solver logs and detailed software configuration were not retained.
+The archived frontier was generated approximately four years before
+this rerun. The original solver logs and detailed software configuration
+were not retained.
 The rerun is therefore documented as a **configuration-specific regeneration,
-not a replacement or correction of the published experimental artifact**.
+not a replacement of the archived capacity artifact**.
 The historical `data/pareto_of_capacities.csv` has not been modified.
 
 Both files contain the same 360 directed capacity keys. The comparisons
@@ -586,7 +609,25 @@ capacity allowance of approximately `2.39e-6` at the default `1e-6`
 feasibility tolerance. This allowance was used only in the diagnostic
 model; **no capacity file was adjusted**.
 
-This records the numerical behavior of the current run rather than hiding
-it behind an optimal-status flag. It is not a finding against the historical
-frontier. These checks concern nominal flow feasibility only, not every
-downstream experiment or scientific conclusion in the original papers.
+These checks concern nominal flow feasibility only, not disrupted-network
+performance. An optimal-status flag alone does not establish that every
+exported constraint is satisfied exactly.
+
+### Regeneration with corrected dependencies: 26 October 2026
+
+A subsequent run with the 21 dependency constraints, `FuncNonlinear=1`,
+and unchanged solver tolerances completed in **343.83 seconds**, exporting
+19 solutions to a separate file. Its minimum-reference capacity total is
+10,048.78746155; its index-18 total is 12,001.465931, 4.90% above the
+historical index-18 total and 0.23% below the earlier regeneration's
+index-18 total. These are positional comparisons, not matched-budget optima.
+
+A stronger recheck fixes each capacity vector in the full corrected nominal
+model, including logarithms and reverse-direction capacity equalities, with
+all functionality states set to one. The solver accepted 19/19 historical
+solutions, 17/20 from the earlier regeneration, and 18/19 from the corrected
+run. Corrected index 16 has a reverse-direction mismatch of approximately
+`2.55e-6` and fails this recheck; the corrected run also reports native
+constraint-violation warnings up to approximately `7.66e-6`. The new frontier
+is therefore not claimed to be free of numerical residuals. No capacity
+values were adjusted, and the historical frontier remains the default.
