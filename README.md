@@ -369,9 +369,10 @@ retained, including behavior that a corrected formulation might change:
   `log(value + 1e-6)` for `sum_log_u`, exactly as the source does.
 - The source sets `OutputFlag = 0` and `InfUnbdInfo = 1`. The generator
   now enables file logging (`OutputFlag = 1`, `LogToConsole = 0`, and a
-  per-solve `LogFile`) while retaining `InfUnbdInfo = 1`. Logarithm handling,
-  feasibility tolerances, and other mathematical solver settings remain
-  unchanged.
+  per-solve `LogFile`) while retaining `InfUnbdInfo = 1`. By default,
+  logarithm handling, feasibility tolerances, and other mathematical solver
+  settings remain unchanged. Explicit log-mode selection is available as
+  documented below.
 - The original dependency guard uses the node variable left over from the
   preceding arc loop. That guard is retained, not silently corrected.
 - The loop keeps the original exact total comparison, multiplicative epsilon
@@ -476,3 +477,48 @@ Logging takes effect only for newly started processes. Updating this code
 does not attach logs to an already-running generation process, restart it,
 or change its solver parameters. The original `data/pareto_of_capacities.csv`
 remains read-only and is never used as a logging or checkpoint destination.
+
+### Optional Gurobi 11+ logarithm handling
+
+The `func_nonlinear` argument makes the logarithm representation explicit for
+**both anchors and every epsilon-constraint solve**:
+
+| Value | Behavior |
+|---|---|
+| `None` (default) | Do not override Gurobi's log-handling setting; retain the source-default path |
+| `0` | Use Gurobi's static piecewise-linear approximation |
+| `1` | Use nonlinear function constraints with dynamic outer approximation rather than a static log approximation |
+
+Explicit selection requires Gurobi 11 or newer. This is the same
+`FuncNonlinear` switch used in the stochastic project's Gurobi configuration;
+its other numerical settings are not imported.
+
+For an exact-nonlinear-log run:
+
+```python
+frontier = build_capacity_frontier(load_networks(), func_nonlinear=1)
+```
+
+The reason to expose this option is computational: the observed Gurobi 11.0.3
+default-mode minimum-capacity solve expanded to 21,505 presolved columns and
+1,475 SOS constraints. Its incumbent remained at a reported 0.12% gap after
+an hour. Nonlinear mode avoids the static logarithm expansion, but is not a
+guarantee that every instance will solve faster. These observations concern
+the present regeneration run, not the machine that produced the archived
+frontier.
+
+**The relative MIP gap is not relaxed.** The implementation never sets
+`MIPGap`; on the present Gurobi 11.0.3 installation its effective default is
+`0.0001` (0.01%), not `0.01` (1%). A 1% tolerance was considered but was not
+selected. The effective `FuncNonlinear` and `MIPGap` values are written to
+`progress.log` before every solve, in addition to the existing Gurobi logs
+and parameter snapshots.
+
+“Exact nonlinear logs” describes the function representation, not
+infinite-precision arithmetic or a zero optimality gap: solver feasibility
+and optimality tolerances still apply. Selecting nonlinear rather than
+piecewise-linear logs is an explicit run configuration, and can change the
+returned capacity vector and subsequent layer bounds. No claim is made that
+the archived experiment used this setting; its original solver logs are not
+available. The original frontier remains unchanged and remains the artifact
+used in the original papers.

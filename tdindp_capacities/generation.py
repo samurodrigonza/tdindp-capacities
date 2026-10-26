@@ -70,6 +70,14 @@ def _run_logging(output_path: str, log_dir: Optional[str]):
 
 def _optimize_logged(model, stage: str, logger, solver_log: str) -> None:
     model.write(os.path.splitext(solver_log)[0] + ".prm")
+    log_mode = (
+        model.Params.FuncNonlinear
+        if _gurobi().gurobi.version()[0] >= 11 else "unavailable before Gurobi 11"
+    )
+    logger.info(
+        "%s: effective FuncNonlinear=%s; MIPGap=%s",
+        stage, log_mode, model.Params.MIPGap,
+    )
     logger.info("%s: optimize started; solver_log=%s", stage, solver_log)
     start = perf_counter()
     model.optimize()
@@ -81,7 +89,11 @@ def _optimize_logged(model, stage: str, logger, solver_log: str) -> None:
         logger.info("%s: objective=%.12g", stage, model.ObjVal)
 
 
-def _capacity_model(networks: Networks, solver_log: Optional[str] = None):
+def _capacity_model(
+    networks: Networks,
+    solver_log: Optional[str] = None,
+    func_nonlinear: Optional[int] = None,
+):
     """Build tdINDP_free_cap for the original nominal, single-period inputs."""
     gp = _gurobi()
     K, T = networks.K, networks.T
@@ -94,6 +106,8 @@ def _capacity_model(networks: Networks, solver_log: Optional[str] = None):
         model.setParam("LogToConsole", 0)
         model.setParam("OutputFlag", 1)
     model.setParam("InfUnbdInfo", 1)
+    if func_nonlinear is not None:
+        model.setParam("FuncNonlinear", func_nonlinear)
 
     demand = {k: [i for i in N_k[k] if b[(i, k, k, 0)] < 0] for k in K}
     supply = {k: [i for i in N_k[k] if b[(i, k, k, 0)] > 0] for k in K}
@@ -270,13 +284,17 @@ def build_capacity_frontier(
     epsilon_decay: float = 0.99,
     epsilon_floor: float = 0.1,
     log_dir: Optional[str] = None,
+    func_nonlinear: Optional[int] = None,
 ) -> CapacityFrontier:
     """Run the source's single-period nominal sweep, saving to a new CSV.
 
     Defaults retain the original epsilon schedule. The historical frontier
     and the reader's default selection are not modified. Each invocation gets
     a unique log directory under log_dir, or beside the output CSV by default.
-    Only logging settings change; mathematical solver settings are preserved.
+    By default only logging settings change. With Gurobi 11+, explicitly pass
+    func_nonlinear=1 for nonlinear logs or 0 for static piecewise-linear logs.
+    None leaves the solver's log-handling setting untouched. MIPGap is never
+    overridden.
     """
     path = os.path.join(data_dir, filename)
     if os.path.exists(path):
@@ -293,18 +311,23 @@ def build_capacity_frontier(
         raise ValueError("epsilon_decay must be in (0, 1)")
     if not 0 < epsilon_floor < epsilon:
         raise ValueError("epsilon_floor must be in (0, epsilon)")
+    if func_nonlinear is not None and func_nonlinear not in (0, 1):
+        raise ValueError("func_nonlinear must be None, 0, or 1")
     with _run_logging(path, log_dir) as (logger, run_dir):
         return _generate_frontier(
             networks, data_dir, filename, epsilon, epsilon_decay, epsilon_floor,
-            logger, run_dir,
+            logger, run_dir, func_nonlinear,
         )
 
 
 def _generate_frontier(
     networks, data_dir, filename, epsilon, epsilon_decay, epsilon_floor, logger, run_dir,
+    func_nonlinear,
 ) -> CapacityFrontier:
     path = os.path.join(data_dir, filename)
     gp = _gurobi()
+    if func_nonlinear is not None and gp.gurobi.version()[0] < 11:
+        raise ValueError("Explicit func_nonlinear selection requires Gurobi 11 or newer")
     start = perf_counter()
     logger.info(
         "Environment: Python=%s; Gurobi=%s; platform=%s; logical_cpus=%s",
@@ -314,10 +337,16 @@ def _generate_frontier(
         "Schedule: epsilon=%g; epsilon_decay=%g; epsilon_floor=%g; layers=%s; periods=%s",
         epsilon, epsilon_decay, epsilon_floor, networks.K, networks.T,
     )
+    logger.info(
+        "Requested FuncNonlinear=%s; MIPGap is not overridden",
+        "unchanged" if func_nonlinear is None else func_nonlinear,
+    )
 
     solver_log = os.path.join(run_dir, "minimum-anchor.log")
     logger.info("Minimum-capacity anchor: building model")
-    with _capacity_model(networks, solver_log=solver_log) as model:
+    with _capacity_model(
+        networks, solver_log=solver_log, func_nonlinear=func_nonlinear,
+    ) as model:
         _optimize_logged(model, "Minimum-capacity anchor", logger, solver_log)
         if model.Status != gp.GRB.OPTIMAL:
             raise RuntimeError(f"Minimum-capacity anchor failed: status {model.Status}")
@@ -331,7 +360,9 @@ def _generate_frontier(
 
     solver_log = os.path.join(run_dir, "fairness-anchor.log")
     logger.info("Fairness anchor: building model")
-    with _capacity_model(networks, solver_log=solver_log) as model:
+    with _capacity_model(
+        networks, solver_log=solver_log, func_nonlinear=func_nonlinear,
+    ) as model:
         _set_fairness_objective(model, networks, upper_bounds)
         _optimize_logged(model, "Fairness anchor", logger, solver_log)
         if model.Status != gp.GRB.OPTIMAL:
@@ -349,7 +380,9 @@ def _generate_frontier(
             "Sweep %d: building model; epsilon=%.12g; budget=%.12g; retained_points=%d",
             iteration, epsilon, actual_total * epsilon, len(solutions),
         )
-        with _capacity_model(networks, solver_log=solver_log) as model:
+        with _capacity_model(
+            networks, solver_log=solver_log, func_nonlinear=func_nonlinear,
+        ) as model:
             _set_fairness_objective(model, networks, upper_bounds)
             model.addConstr(
                 gp.quicksum(
