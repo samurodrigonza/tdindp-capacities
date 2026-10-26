@@ -522,3 +522,71 @@ returned capacity vector and subsequent layer bounds. No claim is made that
 the archived experiment used this setting; its original solver logs are not
 available. The original frontier remains unchanged and remains the artifact
 used in the original papers.
+
+### Completed regeneration: 26 October 2026
+
+The full sweep completed in **80.47 seconds** with Python 3.8.0, Gurobi
+11.0.3, `FuncNonlinear=1`, and the unchanged effective
+`MIPGap=0.0001` (0.01%). The current machine reports an Intel Core Ultra 7
+165H, 22 logical processors, and approximately 31.43 GB usable RAM. This is
+a separate machine/configuration from the historical generation machine
+listed above. The default-mode attempt was stopped; it did not produce a
+completed frontier.
+
+The author generated the archived frontier approximately four years before
+this rerun and used that archived artifact in the original papers. The
+original solver logs and detailed software configuration were not retained.
+The rerun is therefore documented as a **configuration-specific regeneration,
+not a replacement or correction of the published experimental artifact**.
+The historical `data/pareto_of_capacities.csv` has not been modified.
+
+Both files contain the same 360 directed capacity keys. The comparisons
+below use sums of the exported capacity columns, not the historical
+bookkeeping objective columns described above.
+
+| Quantity | Archived frontier | Nonlinear regeneration |
+|---|---:|---:|
+| Exported solutions | 19 | 20 |
+| Minimum-reference capacity sum | 10,048.78746149 | 10,048.78746155 |
+| Minimum-reference Gas maximum | 420.700000 | 420.100000 |
+| Minimum-reference Water maximum | 95.484000 | 115.600000 |
+| Capacity sum at index 18 | 11,440.774734 | 12,029.259189 |
+| Smallest capacity at index 18 | 12.849459 | 16.456843 |
+| Capacity sum at the final exported point | 11,440.774734 | 10,051.497305 |
+
+The minimum-reference sums differ by only about `6e-8`, while 154 individual
+capacities differ by more than `1e-6` (maximum absolute difference:
+`50.204`). This illustrates alternative minimum-capacity allocations with
+effectively identical total capacity. Because their layer maxima become
+the later logarithm bounds, different reference allocations can propagate
+to different frontier samples.
+
+At index 18, the regenerated total is **5.14% higher**, with a mean absolute
+per-arc difference of `2.1853` and a maximum of `5.2934`. This comparison
+aligns the export positions, not identical capacity budgets. The new run
+also exports an additional point at index 19. Thus `row=-1` in the new file
+does **not** represent the same choice as historical index 18; the existing
+reader's historical default remains unchanged.
+
+Solver version, logarithm representation, numerical settings, and the
+chosen optimal reference vector are relevant run-specific factors. Without
+the original logs, these observations cannot isolate the effect of hardware
+alone or identify the original log mode. They do not by themselves establish
+that the archived results are invalid.
+
+#### Numerical verification of the exported capacities
+
+A separate nominal-flow feasibility check, reading both files without
+modifying either, accepted **all 19 archived solutions** at Gurobi's default
+feasibility tolerance. It also accepted 19 of the 20 regenerated solutions.
+Regenerated index 15 has a small numerical residual: its solver log reports
+a maximum constraint violation of `7.9602e-6` and a maximum bound violation
+of `2.7360e-6`. A diagnostic flow solve becomes feasible with a uniform
+capacity allowance of approximately `2.39e-6` at the default `1e-6`
+feasibility tolerance. This allowance was used only in the diagnostic
+model; **no capacity file was adjusted**.
+
+This records the numerical behavior of the current run rather than hiding
+it behind an optimal-status flag. It is not a finding against the historical
+frontier. These checks concern nominal flow feasibility only, not every
+downstream experiment or scientific conclusion in the original papers.
