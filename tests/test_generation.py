@@ -36,6 +36,7 @@ def fake_model(values, status=2, objective=0):
     model.Status = status
     model.ObjVal = objective
     model.SolCount = int(status == 2)
+    model.Params = SimpleNamespace(FuncNonlinear=1, MIPGap=1e-4)
     model.getVars.return_value = [
         SimpleNamespace(VarName="u_('a', 'b', 'test', 0)", X=value)
         for value in values
@@ -69,6 +70,7 @@ class GenerationTests(unittest.TestCase):
                 for arguments in (
                     {"epsilon": 0}, {"epsilon": float("nan")},
                     {"epsilon_decay": 1}, {"epsilon_floor": 1},
+                    {"func_nonlinear": 2}, {"func_nonlinear": "nonlinear"},
                 ):
                     with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                         build_capacity_frontier(small_network(), directory, **arguments)
@@ -103,9 +105,11 @@ class GenerationTests(unittest.TestCase):
                     patch("tdindp_capacities.generation._capacity_model", side_effect=models) as build, \
                     patch("tdindp_capacities.generation._set_fairness_objective") as fairness:
                 frontier = build_capacity_frontier(
-                    network, directory, epsilon_floor=0.98
+                    network, directory, epsilon_floor=0.98, func_nonlinear=1
                 )
             self.assertEqual(build.call_count, 5)
+            for call in build.call_args_list:
+                self.assertEqual(call.kwargs["func_nonlinear"], 1)
             for call in fairness.call_args_list:
                 self.assertEqual(call.args[2], {"test": 10})
             for model, budget in zip(models[2:], (100, 74 * 0.99, 74 * 0.99**2)):
@@ -125,6 +129,7 @@ class GenerationTests(unittest.TestCase):
             self.assertIn("Sweep 2: optimize finished; status=3", progress)
             self.assertIn("continuing sweep", progress)
             self.assertIn("Run completed: points=3", progress)
+            self.assertIn("effective FuncNonlinear=1; MIPGap=0.0001", progress)
             solver_logs = [call.kwargs["solver_log"] for call in build.call_args_list]
             self.assertEqual(len(set(solver_logs)), 5)
 
@@ -187,6 +192,15 @@ class GenerationTests(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     build_capacity_frontier(small_network(), directory)
 
+    def test_explicit_log_mode_rejects_unsupported_solver_version(self):
+        solver = SimpleNamespace(gurobi=SimpleNamespace(version=lambda: (10, 0, 0)))
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("tdindp_capacities.generation._gurobi", return_value=solver), \
+                    patch("tdindp_capacities.generation._capacity_model") as model:
+                with self.assertRaisesRegex(ValueError, "Gurobi 11"):
+                    build_capacity_frontier(small_network(), directory, func_nonlinear=1)
+                model.assert_not_called()
+
 
 @unittest.skipUnless(importlib.util.find_spec("gurobipy"), "Gurobi is optional")
 class FormulationTests(unittest.TestCase):
@@ -197,11 +211,10 @@ class FormulationTests(unittest.TestCase):
         network.A_k["test"] = [("a", "b"), ("b", "a")]
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "solver.log"
-            with _capacity_model(network, solver_log=str(log_path)) as model:
+            with _capacity_model(network, solver_log=str(log_path), func_nonlinear=1) as model:
                 self.assertEqual(model.Params.LogToConsole, 0)
-                self.assertEqual(
-                    model.Params.FuncNonlinear, model.getParamInfo("FuncNonlinear")[-1]
-                )
+                self.assertEqual(model.Params.FuncNonlinear, 1)
+                self.assertEqual(model.Params.MIPGap, model.getParamInfo("MIPGap")[-1])
                 self.assertEqual(
                     model.Params.FeasibilityTol, model.getParamInfo("FeasibilityTol")[-1]
                 )
@@ -211,6 +224,12 @@ class FormulationTests(unittest.TestCase):
             self.assertIn("Gurobi", text)
             self.assertIn("Optimal solution found", text)
             self.assertTrue(log_path.with_suffix(".prm").is_file())
+            self.assertIn("FuncNonlinear", log_path.with_suffix(".prm").read_text())
+
+    def test_explicit_piecewise_linear_mode_does_not_change_gap(self):
+        with _capacity_model(small_network(), func_nonlinear=0) as model:
+            self.assertEqual(model.Params.FuncNonlinear, 0)
+            self.assertEqual(model.Params.MIPGap, model.getParamInfo("MIPGap")[-1])
 
     def test_source_variables_constraints_and_defaults_are_retained(self):
         import gurobipy as gp
