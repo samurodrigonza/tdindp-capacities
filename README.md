@@ -367,8 +367,11 @@ retained, including behavior that a corrected formulation might change:
   `sum_log_u` is computed from the extracted capacity dictionary. Later
   solutions sum all capacity-named model variables for `sum_u` and use
   `log(value + 1e-6)` for `sum_log_u`, exactly as the source does.
-- Only `OutputFlag = 0` and `InfUnbdInfo = 1` are set, as in the source.
-  Logarithm handling and feasibility tolerances remain solver defaults.
+- The source sets `OutputFlag = 0` and `InfUnbdInfo = 1`. The generator
+  now enables file logging (`OutputFlag = 1`, `LogToConsole = 0`, and a
+  per-solve `LogFile`) while retaining `InfUnbdInfo = 1`. Logarithm handling,
+  feasibility tolerances, and other mathematical solver settings remain
+  unchanged.
 - The original dependency guard uses the node variable left over from the
   preceding arc loop. That guard is retained, not silently corrected.
 - The loop keeps the original exact total comparison, multiplicative epsilon
@@ -389,9 +392,9 @@ stored `sum_u = 10,060.76`; the discrepancy matches the repeated endpoint's
 capacity, not evidence of a separate solve. The source does not establish
 that row 18 is a universal knee or record a formal selection policy.
 
-Focused checks cover model construction and sweep control flow, without
-running or comparing full frontiers. Model-construction checks require the
-optional dependency and license:
+Focused checks cover model construction, sweep control flow, failure logs,
+and logging from a small real optimization, without running or comparing
+full frontiers. Solver checks require the optional dependency and license:
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -417,3 +420,59 @@ operating-system version, and any solver settings beyond those in the source
 have not been supplied; the hardware information alone does not establish
 them. Device and Windows product identifiers are omitted because they are
 not needed to reproduce the computation.
+
+### Persistent logs for new generation runs
+
+`build_capacity_frontier()` now writes logs automatically. With the default
+output filename, each invocation creates a unique, UTC-prefixed directory
+under `data/pareto_regenerated_logs/`. Its location is printed to the console
+as soon as the run starts. Repeated attempts use separate directories, so
+logs from a failed attempt are not overwritten.
+
+| File in the run directory | Contents |
+|---|---|
+| `progress.log` | Timestamped stages, environment versions, epsilon settings, layer bounds, solve start/end, statuses, objectives, accepted/duplicate points, export completion, and Python errors or interruptions |
+| `minimum-anchor.log` | Native Gurobi progress for the minimum-capacity solve |
+| `fairness-anchor.log` | Native Gurobi progress for the unbudgeted fairness solve |
+| `sweep-0001.log`, etc. | Native Gurobi progress for each epsilon-constraint iteration |
+| Corresponding `.prm` files | Nondefault Gurobi parameters recorded immediately before each solve; defaults depend on the logged solver version |
+
+High-level progress is also printed to the console. Gurobi's detailed output
+is kept in the per-solve files rather than flooding the console. Those logs
+provide the solver's own progress information, including incumbent/bound/gap
+and elapsed-time information when applicable. Python progress records are
+flushed after each message, including before a potentially long solve.
+
+To choose a different parent directory:
+
+```python
+frontier = build_capacity_frontier(
+    load_networks(),
+    filename="pareto_regenerated.csv",
+    log_dir="run_logs",
+)
+```
+
+To follow a run from PowerShell, substitute the directory printed at startup:
+
+```powershell
+Get-Content -LiteralPath '.\data\pareto_regenerated_logs\<run-directory>\progress.log' -Wait
+```
+
+Follow the active stage's `.log` file in another terminal for detailed solver
+progress. The default generated-log directories are ignored by Git. Do not
+commit logs without reviewing their contents: they can contain local paths
+and solver/environment details.
+
+These logs are diagnostic records, **not restart checkpoints**. Accepted
+capacity vectors remain in memory until the final CSV export. A normal
+Python exception or keyboard interruption is logged and re-raised; a hard
+process kill, power loss, or native crash may leave no final error message.
+The last flushed messages can still identify the stage that was active, but
+cannot restore a lost solver state. Only `Run completed` confirms that the
+final CSV was written and loaded successfully.
+
+Logging takes effect only for newly started processes. Updating this code
+does not attach logs to an already-running generation process, restart it,
+or change its solver parameters. The original `data/pareto_of_capacities.csv`
+remains read-only and is never used as a logging or checkpoint destination.

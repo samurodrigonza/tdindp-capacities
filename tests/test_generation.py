@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 import math
 import os
 import subprocess
@@ -6,10 +7,13 @@ import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from tdindp_capacities import build_capacity_frontier
-from tdindp_capacities.generation import _capacity_model, _set_fairness_objective
+from tdindp_capacities.generation import (
+    _capacity_model, _optimize_logged, _set_fairness_objective,
+)
 from tdindp_capacities.networks import Networks
 
 
@@ -31,6 +35,7 @@ def fake_model(values, status=2, objective=0):
     model.__enter__.return_value = model
     model.Status = status
     model.ObjVal = objective
+    model.SolCount = int(status == 2)
     model.getVars.return_value = [
         SimpleNamespace(VarName="u_('a', 'b', 'test', 0)", X=value)
         for value in values
@@ -82,6 +87,7 @@ class GenerationTests(unittest.TestCase):
         solver = SimpleNamespace(
             GRB=SimpleNamespace(OPTIMAL=2, INFEASIBLE=3, INF_OR_UNBD=4),
             quicksum=lambda terms: Budget(),
+            gurobi=SimpleNamespace(version=lambda: (11, 0, 3)),
         )
         models = [
             fake_model([2, 10], objective=20),
@@ -95,8 +101,7 @@ class GenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch("tdindp_capacities.generation._gurobi", return_value=solver), \
                     patch("tdindp_capacities.generation._capacity_model", side_effect=models) as build, \
-                    patch("tdindp_capacities.generation._set_fairness_objective") as fairness, \
-                    self.assertLogs("tdindp_capacities.generation", level="WARNING"):
+                    patch("tdindp_capacities.generation._set_fairness_objective") as fairness:
                 frontier = build_capacity_frontier(
                     network, directory, epsilon_floor=0.98
                 )
@@ -114,20 +119,99 @@ class GenerationTests(unittest.TestCase):
                 frontier.objectives["sum_log_u"].iloc[1],
                 math.log(4 + 1e-6) + math.log(70 + 1e-6),
             )
+            progress = next(Path(directory).rglob("progress.log")).read_text(encoding="utf-8")
+            self.assertIn("Minimum-capacity anchor: optimize started", progress)
+            self.assertIn("Fairness anchor: optimize finished", progress)
+            self.assertIn("Sweep 2: optimize finished; status=3", progress)
+            self.assertIn("continuing sweep", progress)
+            self.assertIn("Run completed: points=3", progress)
+            solver_logs = [call.kwargs["solver_log"] for call in build.call_args_list]
+            self.assertEqual(len(set(solver_logs)), 5)
 
     def test_failed_anchor_does_not_create_output(self):
-        solver = SimpleNamespace(GRB=SimpleNamespace(OPTIMAL=2))
+        solver = SimpleNamespace(
+            GRB=SimpleNamespace(OPTIMAL=2),
+            gurobi=SimpleNamespace(version=lambda: (11, 0, 3)),
+        )
         with tempfile.TemporaryDirectory() as directory:
             with patch("tdindp_capacities.generation._gurobi", return_value=solver), \
                     patch("tdindp_capacities.generation._capacity_model",
                           return_value=fake_model([], status=3)):
                 with self.assertRaisesRegex(RuntimeError, "anchor failed"):
                     build_capacity_frontier(small_network(), directory)
-            self.assertEqual(os.listdir(directory), [])
+            self.assertFalse((Path(directory) / "pareto_regenerated.csv").exists())
+            progress = next(Path(directory).rglob("progress.log")).read_text(encoding="utf-8")
+            self.assertIn("status=3", progress)
+            self.assertIn("Run failed or interrupted", progress)
+            self.assertIn("RuntimeError: Minimum-capacity anchor failed", progress)
+            self.assertNotIn("Run completed", progress)
+
+    def test_interrupts_leave_separate_logs_for_each_attempt(self):
+        solver = SimpleNamespace(
+            gurobi=SimpleNamespace(version=lambda: (11, 0, 3)),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory) / "custom_logs"
+            for attempt in range(2):
+                model = fake_model([])
+                model.optimize.side_effect = KeyboardInterrupt(f"interrupted attempt {attempt}")
+                with patch("tdindp_capacities.generation._gurobi", return_value=solver), \
+                        patch("tdindp_capacities.generation._capacity_model", return_value=model):
+                    with self.assertRaises(KeyboardInterrupt):
+                        build_capacity_frontier(small_network(), directory, log_dir=str(log_dir))
+            logs = list(log_dir.rglob("progress.log"))
+            self.assertEqual(len(logs), 2)
+            contents = [path.read_text(encoding="utf-8") for path in logs]
+            for attempt in range(2):
+                self.assertEqual(
+                    sum(f"KeyboardInterrupt: interrupted attempt {attempt}" in text for text in contents),
+                    1,
+                )
+            self.assertFalse((Path(directory) / "pareto_regenerated.csv").exists())
+
+    def test_progress_is_readable_while_a_solve_is_active(self):
+        solver = SimpleNamespace(
+            gurobi=SimpleNamespace(version=lambda: (11, 0, 3)),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            def interrupted_solve():
+                progress = next(Path(directory).rglob("progress.log")).read_text(encoding="utf-8")
+                self.assertIn("Minimum-capacity anchor: optimize started", progress)
+                self.assertNotIn("optimize finished", progress)
+                raise KeyboardInterrupt("stop test solve")
+
+            model = fake_model([])
+            model.optimize.side_effect = interrupted_solve
+            with patch("tdindp_capacities.generation._gurobi", return_value=solver), \
+                    patch("tdindp_capacities.generation._capacity_model", return_value=model):
+                with self.assertRaises(KeyboardInterrupt):
+                    build_capacity_frontier(small_network(), directory)
 
 
 @unittest.skipUnless(importlib.util.find_spec("gurobipy"), "Gurobi is optional")
 class FormulationTests(unittest.TestCase):
+    def test_real_solver_writes_progress_and_parameter_files(self):
+        import gurobipy as gp
+
+        network = small_network()
+        network.A_k["test"] = [("a", "b"), ("b", "a")]
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "solver.log"
+            with _capacity_model(network, solver_log=str(log_path)) as model:
+                self.assertEqual(model.Params.LogToConsole, 0)
+                self.assertEqual(
+                    model.Params.FuncNonlinear, model.getParamInfo("FuncNonlinear")[-1]
+                )
+                self.assertEqual(
+                    model.Params.FeasibilityTol, model.getParamInfo("FeasibilityTol")[-1]
+                )
+                _optimize_logged(model, "Test model", logging.getLogger(__name__), str(log_path))
+                self.assertEqual(model.Status, gp.GRB.OPTIMAL)
+            text = log_path.read_text(encoding="utf-8")
+            self.assertIn("Gurobi", text)
+            self.assertIn("Optimal solution found", text)
+            self.assertTrue(log_path.with_suffix(".prm").is_file())
+
     def test_source_variables_constraints_and_defaults_are_retained(self):
         import gurobipy as gp
 
