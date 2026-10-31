@@ -1,9 +1,10 @@
 """Nominal capacity generation based on the original find_capacities routine.
 
-This extraction retains the source's Gurobi defaults, duplicate endpoint
-behavior, and objective bookkeeping, but corrects the dependency guard to
-use actual provider nodes. It uses the source's shipped configuration:
-T = [0], no damaged components, and no critical-demand nodes.
+This is the corrected generator: dependency constraints use actual provider
+nodes, each arc has one capacity variable, and stored objectives are computed
+from the capacities. The code behind earlier publications is archived in
+``pre_fix/``. It uses the source's shipped configuration: T = [0], no damaged
+components, and no critical-demand nodes.
 """
 
 from __future__ import annotations
@@ -127,8 +128,6 @@ def _capacity_model(
         )
         for k in K for i in demand[k] for l in L_k[k] for t in T
     }
-    # Do not deduplicate A_k: repeated keys create variables before overwriting
-    # dictionary entries, just as in the source.
     x = {
         (i, j, k, l, t): model.addVar(
             vtype=gp.GRB.CONTINUOUS, name="x_" + str((i, j, k, l, t))
@@ -279,6 +278,38 @@ def _set_fairness_objective(model, networks: Networks, upper_bounds: dict) -> No
                 model.update()
 
 
+def _validate_request(networks, epsilon, epsilon_decay, epsilon_floor, func_nonlinear) -> None:
+    if networks.T != [0]:
+        raise ValueError("This extraction supports the source's nominal T = [0] only")
+    if not networks.K or any(
+        not networks.N_k[k] or not networks.A_k[k] for k in networks.K
+    ):
+        raise ValueError("Capacity generation requires nonempty layers, nodes, and arcs")
+    if any(len(networks.A_k[k]) != len(set(networks.A_k[k])) for k in networks.K):
+        raise ValueError("Capacity generation requires unique arcs, as load_networks supplies")
+    if not 0 < epsilon <= 1:
+        raise ValueError("epsilon must be in (0, 1]")
+    if not 0 < epsilon_decay < 1:
+        raise ValueError("epsilon_decay must be in (0, 1)")
+    if not 0 < epsilon_floor < epsilon:
+        raise ValueError("epsilon_floor must be in (0, epsilon)")
+    if func_nonlinear is not None and func_nonlinear not in (0, 1):
+        raise ValueError("func_nonlinear must be None, 0, or 1")
+
+
+def _write_frontier(path: str, solutions: list) -> None:
+    """Write capacity vectors with objectives computed from the capacities."""
+    arc_keys = list(solutions[0])
+    data = {key: [float(solution[key]) for solution in solutions] for key in arc_keys}
+    data["sum_log_u"] = [
+        sum(math.log(solution[key]) for key in arc_keys) for solution in solutions
+    ]
+    data["sum_u"] = [sum(solution[key] for key in arc_keys) for solution in solutions]
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "x", encoding="utf-8", newline="") as stream:
+        pd.DataFrame(data, columns=data.keys()).to_csv(stream)
+
+
 def build_capacity_frontier(
     networks: Networks,
     data_dir: str = DATA_DIR,
@@ -289,11 +320,10 @@ def build_capacity_frontier(
     log_dir: Optional[str] = None,
     func_nonlinear: Optional[int] = None,
 ) -> CapacityFrontier:
-    """Run the nominal sweep with corrected dependencies, saving to a new CSV.
+    """Run the nominal sweep, saving to a new CSV.
 
-    Defaults retain the original epsilon schedule. The historical frontier
-    and the reader's default selection are not modified. Each invocation gets
-    a unique log directory under log_dir, or beside the output CSV by default.
+    Defaults retain the original epsilon schedule. Each invocation gets a
+    unique log directory under log_dir, or beside the output CSV by default.
     Solver settings change only for logging by default. With Gurobi 11+, pass
     func_nonlinear=1 for nonlinear logs or 0 for static piecewise-linear logs.
     None leaves the solver's log-handling setting untouched. MIPGap is never
@@ -302,20 +332,7 @@ def build_capacity_frontier(
     path = os.path.join(data_dir, filename)
     if os.path.exists(path):
         raise FileExistsError(f"Refusing to overwrite existing frontier: {path}")
-    if networks.T != [0]:
-        raise ValueError("This extraction supports the source's nominal T = [0] only")
-    if not networks.K or any(
-        not networks.N_k[k] or not networks.A_k[k] for k in networks.K
-    ):
-        raise ValueError("Capacity generation requires nonempty layers, nodes, and arcs")
-    if not 0 < epsilon <= 1:
-        raise ValueError("epsilon must be in (0, 1]")
-    if not 0 < epsilon_decay < 1:
-        raise ValueError("epsilon_decay must be in (0, 1)")
-    if not 0 < epsilon_floor < epsilon:
-        raise ValueError("epsilon_floor must be in (0, epsilon)")
-    if func_nonlinear is not None and func_nonlinear not in (0, 1):
-        raise ValueError("func_nonlinear must be None, 0, or 1")
+    _validate_request(networks, epsilon, epsilon_decay, epsilon_floor, func_nonlinear)
     with _run_logging(path, log_dir) as (logger, run_dir):
         return _generate_frontier(
             networks, data_dir, filename, epsilon, epsilon_decay, epsilon_floor,
@@ -372,8 +389,6 @@ def _generate_frontier(
             raise RuntimeError(f"Fairness anchor failed: status {model.Status}")
         actual_total = sum(_capacity_values(model).values())
 
-    minimum["sum_log_u"] = sum(math.log(value) for value in minimum.values())
-    minimum["sum_u"] = optimal_total
     solutions = [minimum]
     iteration = 0
     while actual_total > optimal_total and epsilon > epsilon_floor:
@@ -397,19 +412,12 @@ def _generate_frontier(
             _optimize_logged(model, f"Sweep {iteration}", logger, solver_log)
             if model.Status == gp.GRB.OPTIMAL:
                 actual = _capacity_values(model)
-                actual_total = sum(
-                    variable.X for variable in model.getVars() if variable.VarName[0] == "u"
-                )
-                actual["sum_log_u"] = sum(
-                    math.log(variable.X + 1e-6)
-                    for variable in model.getVars() if variable.VarName[0] == "u"
-                )
-                actual["sum_u"] = actual_total
+                actual_total = sum(actual.values())
                 if actual not in solutions:
                     solutions.append(actual)
                     logger.info(
-                        "Sweep %d: accepted point; sum_u=%.12g; sum_log_u=%.12g; retained_points=%d",
-                        iteration, actual_total, actual["sum_log_u"], len(solutions),
+                        "Sweep %d: accepted point; sum_u=%.12g; retained_points=%d",
+                        iteration, actual_total, len(solutions),
                     )
                 else:
                     logger.info("Sweep %d: duplicate point; not appended", iteration)
@@ -426,11 +434,8 @@ def _generate_frontier(
         "Sweep ended: iterations=%d; epsilon=%.12g; last_total=%.12g; minimum_objective=%.12g",
         iteration, epsilon, actual_total, optimal_total,
     )
-    data = {key: [float(solution[key]) for solution in solutions] for key in solutions[0]}
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     logger.info("Writing %d points to %s", len(solutions), os.path.abspath(path))
-    with open(path, "x", encoding="utf-8", newline="") as stream:
-        pd.DataFrame(data, columns=data.keys()).to_csv(stream)
+    _write_frontier(path, solutions)
     frontier = load_frontier(data_dir=data_dir, filename=filename)
     logger.info(
         "Run completed: points=%d; capacity_columns=%d; elapsed=%.3fs; output=%s",

@@ -4,8 +4,8 @@ Run from the repository root::
 
     python example.py
 
-Every number printed below is read from ``data/``; nothing is solved and
-Gurobi is not required.
+Every number printed below is read from ``data/`` or ``pre_fix/data/``; nothing
+is solved and Gurobi is not required.
 """
 
 import pandas as pd
@@ -13,6 +13,7 @@ import pandas as pd
 from tdindp_capacities import (
     DEFAULT_ROW,
     compare_to_nominal,
+    load_benchmark,
     load_capacities,
     load_frontier,
     load_networks,
@@ -33,7 +34,7 @@ rule("1. The instance")
 # ---------------------------------------------------------------------------
 nets = load_networks()
 print(nets.summary().to_string(index=False))
-print("\nArc counts are post-bidirectionalisation: each CSV row becomes two")
+print("\nArc counts are post-bidirectionalisation: each unique CSV arc becomes two")
 print("directed arcs, which is why there are 360 capacity keys in total.")
 
 # ---------------------------------------------------------------------------
@@ -46,19 +47,19 @@ print("arcs/point:", frontier.n_arcs)
 print()
 print(frontier.summary_table().to_string(index=False))
 print()
-print("Row 0 is the cost-optimal reference. Rows 1..18 are the epsilon sweep:")
-print("row 1 maximises sum_log_u unconstrained, then the total-capacity budget")
+print("Row 0 is the minimum-capacity reference. Rows 1..18 are the epsilon sweep:")
+print("row 1 maximises sum_log_u at the fairness anchor's total, then the budget")
 print("is tightened by a factor of 0.99 per iteration until the sweep stops.")
 
 # ---------------------------------------------------------------------------
 rule("3. Reading the capacities the models actually use")
 # ---------------------------------------------------------------------------
-u = load_capacities()  # defaults to row 18 -- the shipped behaviour
+u = load_capacities()  # defaults to the last row of the corrected frontier
 print("load_capacities() -> %d entries keyed by (tail, head, network, t)" % len(u))
 for key in list(u)[:5]:
     print("   ", key, "->", u[key])
 
-print("\nIdentical selections (row 18 is the last row):")
+print("\nIdentical selections (row %d is the last row):" % DEFAULT_ROW)
 print("   load_capacities(row=%d) == load_capacities(row=-1) :" % DEFAULT_ROW,
       load_capacities(row=DEFAULT_ROW) == load_capacities(row=-1))
 
@@ -71,15 +72,20 @@ for name, value in frontier.point_summary().items():
     print("    %-22s %s" % (name, value))
 
 # ---------------------------------------------------------------------------
-rule("3b. The two objective columns do not reconcile -- recompute them")
+rule("3b. Stored objectives: corrected frontier versus the pre-fix benchmark")
 # ---------------------------------------------------------------------------
 check = frontier.objective_consistency()
-print(check[["row", "sum_u_error", "sum_log_u_error"]].to_string(index=False))
-print()
-print("Row 0's sum_u is off by %+.4f from its own capacity columns." % check["sum_u_error"].iloc[0])
-print("Rows 1-18 carry a CONSTANT sum_log_u offset of %+.4f." % check["sum_log_u_error"].iloc[1])
-print("The capacity columns are self-consistent and are all that gets used;")
-print("treat sum_u / sum_log_u as provenance notes, not as reportable numbers.")
+print("Corrected frontier, largest errors against its own capacity columns:")
+print("   sum_u %.2e, sum_log_u %.2e" % (
+    check["sum_u_error"].abs().max(), check["sum_log_u_error"].abs().max()))
+
+benchmark = load_benchmark()
+old = benchmark.objective_consistency()
+print("\nPre-fix benchmark, kept unchanged for earlier publications:")
+print("   row 0 sum_u is off by %+.4f; rows 1-18 carry a sum_log_u offset of %+.4f." % (
+    old["sum_u_error"].iloc[0], old["sum_log_u_error"].iloc[1]))
+print("Both trace to arc 5 -> 64, listed twice in PowerArcs.csv when that file was made.")
+print("point_summary() and summary_table() always recompute from the capacities.")
 
 # ---------------------------------------------------------------------------
 rule("4. The CSV capacities are NOT the model capacities")
@@ -96,10 +102,10 @@ print(cmp.reindex(cmp["delta"].abs().sort_values(ascending=False).index)
 print("\nThe selected capacities come from the calibrated frontier, not the source arc files.")
 
 # ---------------------------------------------------------------------------
-rule("5. Fairness is what row 18 buys you")
+rule("5. Fairness is what the last row buys you")
 # ---------------------------------------------------------------------------
 diff = frontier.compare(0, DEFAULT_ROW)
-print("Row 0 (cost-optimal) vs row %d (used):" % DEFAULT_ROW)
+print("Row 0 (minimum capacity) vs row %d (selected):" % DEFAULT_ROW)
 print("   thinnest arc : %.4f  ->  %.4f" % (
     frontier.point_summary(0)["min_capacity"],
     frontier.point_summary(DEFAULT_ROW)["min_capacity"]))
@@ -119,9 +125,11 @@ print("gamma entries:", len(nets.gamma))
 example = next(iter(nets.gamma))
 print("example key  :", example)
 dependee, depender, k, k_tilde, t = example
-print("\nA 4-tuple lookup returns nothing and raises nothing:")
-print("   (dependee, depender, k, k_tilde) in gamma ->",
-      (dependee, depender, k, k_tilde) in nets.gamma)
+print("\nA 4-tuple lookup now raises instead of quietly returning nothing:")
+try:
+    (dependee, depender, k, k_tilde) in nets.gamma
+except ValueError as exc:
+    print("   (dependee, depender, k, k_tilde) in gamma -> ValueError:", exc)
 print("   full 5-tuple in gamma                     ->", example in nets.gamma)
 print("\nThat silent miss once disabled every interdependency constraint in the")
 print("downstream models. Always key gamma with the trailing t.")

@@ -6,3 +6,4 @@ dist/
 .venv/
 data/pareto_regenerated.csv
 data/*_logs/
+pre_fix/data/*_logs/
