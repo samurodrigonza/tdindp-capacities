@@ -12,6 +12,7 @@ dependencies = ["pandas>=1.0"]
 
 [project.optional-dependencies]
 gurobi = ["gurobipy"]
+figures = ["matplotlib"]
 
 [tool.setuptools]
 packages = ["tdindp_capacities"]

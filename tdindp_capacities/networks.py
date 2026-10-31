@@ -20,17 +20,18 @@ Naming follows the paper:
 ``gamma[(i,j,k,kt,t)]``  node ``i`` in ``k`` is a *dependee* of node ``j`` in ``kt``
 ====================  =========================================================
 
-Two behaviours are inherited from the original code and are easy to trip
-over, so they are called out explicitly:
+Three behaviours are easy to trip over, so they are called out explicitly:
 
-1. **Arcs are made bidirectional after loading.** Each CSV row yields one
-   directed arc; the reverse arc is then appended if absent, and ``u``,
+1. **Arcs are made bidirectional after loading.** Each unique CSV arc yields
+   one directed arc; the reverse arc is then appended if absent, and ``u``,
    ``f`` and ``c`` are mirrored onto it. The arc counts therefore double
-   relative to the CSVs.
-2. **``gamma`` keys are 5-tuples ending in ``t``.** Looking them up with a
-   4-tuple silently returns nothing rather than raising. That exact
-   mismatch once disabled every interdependency constraint in the
-   downstream models without any error being raised.
+   relative to the unique CSV arcs.
+2. **``gamma`` keys are 5-tuples ending in ``t``.** A 4-tuple lookup in the
+   original code silently returned nothing, which once disabled every
+   interdependency constraint in the downstream models. :class:`Gamma` now
+   raises on any lookup whose key is not a 5-tuple.
+3. **``PowerArcs.csv`` lists arc 5 -> 64 on two rows.** ``A_k`` keeps it once.
+   As in the original dictionaries, ``f`` and ``c`` take the later row's values.
 """
 
 from __future__ import annotations
@@ -41,7 +42,11 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(_ROOT, "data")
+
+#: Data behind earlier publications; see ``pre_fix/README.md``.
+PRE_FIX_DATA_DIR = os.path.join(_ROOT, "pre_fix", "data")
 
 #: Networks actually loaded. ``Telecommunication`` CSVs ship with the data
 #: but are excluded here, exactly as in the original study.
@@ -49,6 +54,35 @@ NETWORKS = ["Gas", "Power", "Water"]
 
 NodeKey = str
 ArcKey = Tuple[str, str]
+
+
+class Gamma(dict):
+    """Interdependency map that rejects lookups with a malformed key.
+
+    Keys are ``(dependee, depender, dependee_network, depender_network, t)``.
+    Raises ``ValueError`` rather than ``KeyError`` so that a wrong key shape
+    cannot be mistaken for an absent dependency.
+    """
+
+    @staticmethod
+    def _check(key) -> None:
+        if not (isinstance(key, tuple) and len(key) == 5):
+            raise ValueError(
+                "gamma keys are (dependee, depender, dependee_network, "
+                "depender_network, t); got {!r}".format(key)
+            )
+
+    def __contains__(self, key) -> bool:
+        self._check(key)
+        return super().__contains__(key)
+
+    def __getitem__(self, key):
+        self._check(key)
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        self._check(key)
+        return super().get(key, default)
 
 
 @dataclass
@@ -67,7 +101,7 @@ class Networks:
     q: Dict[tuple, float]
     M_plus: Dict[tuple, float] = field(default_factory=dict)
     M_minus: Dict[tuple, float] = field(default_factory=dict)
-    gamma: Dict[tuple, int] = field(default_factory=dict)
+    gamma: Dict[tuple, int] = field(default_factory=Gamma)
 
     # -- node partitions ---------------------------------------------------
     def supply_nodes(self, k: str, t: int = 0) -> List[NodeKey]:
@@ -150,10 +184,11 @@ def load_networks(data_dir: str = DATA_DIR, networks: List[str] = None,
                 M_minus[(i, k, k, t)] = float(nodes["Mm"][row])
 
         arcs = pd.read_csv(os.path.join(data_dir, "{}Arcs.csv".format(k)))
-        A_k[k] = [
+        # dict.fromkeys drops repeated CSV rows but keeps the file order.
+        A_k[k] = list(dict.fromkeys(
             (_prefixed(k, arcs["Start Node"][r]), _prefixed(k, arcs["End Node"][r]))
             for r in arcs.index
-        ]
+        ))
         for t in T:
             for r in arcs.index:
                 i = _prefixed(k, arcs["Start Node"][r])
@@ -182,14 +217,14 @@ def load_networks(data_dir: str = DATA_DIR, networks: List[str] = None,
     _make_bidirectional(K, T, A_k, L_k, u, f, c)
 
     return Networks(K=K, T=T, N_k=N_k, A_k=A_k, L_k=L_k, b=b, u_nominal=u,
-                    c=c, f=f, q=q, M_plus=M_plus, M_minus=M_minus, gamma=gamma)
+                    c=c, f=f, q=q, M_plus=M_plus, M_minus=M_minus, gamma=Gamma(gamma))
 
 
 def _make_bidirectional(K, T, A_k, L_k, u, f, c) -> None:
     """Append every missing reverse arc and mirror ``u``, ``f`` and ``c``.
 
-    This is what takes the instance from 180 CSV rows to 360 arcs, and it
-    is why ``pareto_of_capacities.csv`` has 360 capacity columns.
+    This is what takes the instance from 180 unique CSV arcs to 360, and it
+    is why the frontier CSVs have 360 capacity columns.
     """
     for k in K:
         for (i, j) in list(A_k[k]):

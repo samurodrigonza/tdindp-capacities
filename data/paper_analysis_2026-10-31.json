@@ -1,0 +1,633 @@
+{
+  "throughput_bounds": {
+    "Gas": {
+      "bound": 351.35,
+      "node": "Gas_node_1",
+      "availability": 702.7,
+      "degree": 2
+    },
+    "Power": {
+      "bound": 86.0,
+      "node": "Power_node_1",
+      "availability": 258.0,
+      "degree": 3
+    },
+    "Water": {
+      "bound": 55.167,
+      "node": "Water_node_16",
+      "availability": 55.167,
+      "degree": 1
+    }
+  },
+  "bottlenecks": {
+    "Gas": 351.35,
+    "Power": 86.00000000366667,
+    "Water": 55.167
+  },
+  "fixed_ceilings": {
+    "Gas": 420.7000000000004,
+    "Power": 126.20096241299996,
+    "Water": 90.30099999999992
+  },
+  "moving_ceilings": {
+    "Gas": 351.35,
+    "Power": 86.0,
+    "Water": 55.16699999999766
+  },
+  "floor_status": 2,
+  "floor_total": 10857.364610746006,
+  "floor_bound": 10857.364610746012,
+  "floor_log_sum": 864.0821672205165,
+  "floor_by_layer": {
+    "Gas": 4017.2,
+    "Power": 4494.9746107460005,
+    "Water": 2345.1900000000096
+  },
+  "minimum_by_layer": {
+    "Gas": 3541.999999999999,
+    "Power": 4171.109461545996,
+    "Water": 2335.6779999999967
+  },
+  "prefix_selection_budget": 11440.774734099938,
+  "reference_minimum_flows": {
+    "connections": 52,
+    "forced_flow": 50,
+    "saturated": 43,
+    "can_be_idle": [
+      "Power_node_71-Power_node_70",
+      "Power_node_66-Power_node_57"
+    ]
+  },
+  "binaries_at_one": {
+    "free_objective": 1114.3448505088654,
+    "fixed_objective": 1114.3448496585086,
+    "largest_capacity_difference": 1.0590111223507392e-06
+  },
+  "single_ceiling": {
+    "Gas": {
+      "status": 2,
+      "log_sum": 1089.4891753937918,
+      "minimum": 10.134652780412672,
+      "layer_totals": {
+        "Gas": 4052.5542200123546,
+        "Power": 4653.747019158295,
+        "Water": 2734.473494921159
+      }
+    },
+    "Power": {
+      "status": 2,
+      "log_sum": 1103.2389197725768,
+      "minimum": 11.324406801655314,
+      "layer_totals": {
+        "Gas": 3624.409805870986,
+        "Power": 4998.638813414204,
+        "Water": 2817.7261126562794
+      }
+    },
+    "Water": {
+      "status": 2,
+      "log_sum": 1113.3732244980613,
+      "minimum": 12.887314272031347,
+      "layer_totals": {
+        "Gas": 3639.1438297258487,
+        "Power": 4848.047782308164,
+        "Water": 2953.583118031263
+      }
+    }
+  },
+  "matched_budget": [
+    {
+      "rule": "fixed",
+      "budget": 10900.0,
+      "status": 2,
+      "objective": 1065.9112566322221,
+      "bound": 1065.9484798971746,
+      "elapsed": 2.926201799999994,
+      "total": 10899.999999984373,
+      "log_sum": 1065.9112562047462,
+      "minimum": 9.42163063210266,
+      "maxima": {
+        "Gas": 418.46611754194527,
+        "Power": 122.43556734790226,
+        "Water": 72.75684362824553
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 3609.447867376778,
+        "Power": 4607.042188712884,
+        "Water": 2683.5099438947136
+      }
+    },
+    {
+      "rule": "fixed",
+      "budget": 11000.0,
+      "status": 2,
+      "objective": 1076.1495645248285,
+      "bound": 1076.2553996829752,
+      "elapsed": 7.177273399999997,
+      "total": 10999.999999425092,
+      "log_sum": 1076.1495632099877,
+      "minimum": 10.115714595991768,
+      "maxima": {
+        "Gas": 418.1469839969344,
+        "Power": 122.11120125231083,
+        "Water": 72.80173518555847
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 3614.9602192097927,
+        "Power": 4652.182716954828,
+        "Water": 2732.857063260468
+      }
+    },
+    {
+      "rule": "fixed",
+      "budget": 11250.0,
+      "status": 2,
+      "objective": 1098.9945971861973,
+      "bound": 1099.1022692891952,
+      "elapsed": 12.976188900000004,
+      "total": 11249.99999059356,
+      "log_sum": 1098.994594339744,
+      "minimum": 11.810765817631506,
+      "maxima": {
+        "Gas": 417.4962038908699,
+        "Power": 121.55919244578175,
+        "Water": 72.87380888599382
+      },
+      "recheck_failure": {
+        "reverse_mismatch": 6.218297016857832e-06,
+        "allowance": 1e-05
+      },
+      "layer_totals": {
+        "Gas": 3628.7830313448826,
+        "Power": 4769.742654381755,
+        "Water": 2851.474304866916
+      }
+    },
+    {
+      "rule": "fixed",
+      "budget": 11440.774734099938,
+      "status": 2,
+      "objective": 1114.3448505088654,
+      "bound": 1114.4551116912198,
+      "elapsed": 6.260129799999994,
+      "total": 11440.77473362558,
+      "log_sum": 1114.3448493149797,
+      "minimum": 13.056771735761572,
+      "maxima": {
+        "Gas": 417.1116180882647,
+        "Power": 120.84466262657138,
+        "Water": 72.89796164638597
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 3640.7630817417494,
+        "Power": 4861.164899798896,
+        "Water": 2938.846752084931
+      }
+    },
+    {
+      "rule": "fixed",
+      "budget": 11750.0,
+      "status": 2,
+      "objective": 1136.4554411029708,
+      "bound": 1136.5675919402343,
+      "elapsed": 7.775914900000004,
+      "total": 11749.999996402035,
+      "log_sum": 1136.4554391083752,
+      "minimum": 14.931091850243426,
+      "maxima": {
+        "Gas": 416.37114057336333,
+        "Power": 119.54585021511215,
+        "Water": 72.86471302000142
+      },
+      "recheck_failure": {
+        "reverse_mismatch": 1.8739543037327167e-06,
+        "allowance": 1e-06
+      },
+      "layer_totals": {
+        "Gas": 3661.562506412506,
+        "Power": 5017.256605451827,
+        "Water": 3071.180884537705
+      }
+    },
+    {
+      "rule": "fixed",
+      "budget": 12000.0,
+      "status": 2,
+      "objective": 1152.4709115963255,
+      "bound": 1152.575625461106,
+      "elapsed": 11.362529699999996,
+      "total": 12000.000005421904,
+      "log_sum": 1152.4709103048067,
+      "minimum": 16.300948760880928,
+      "maxima": {
+        "Gas": 414.88427452672755,
+        "Power": 118.60290646278894,
+        "Water": 70.77274287437861
+      },
+      "recheck_failure": {
+        "reverse_mismatch": 6.484039552390186e-06,
+        "allowance": 1e-05
+      },
+      "layer_totals": {
+        "Gas": 3684.113332491022,
+        "Power": 5133.3795620922065,
+        "Water": 3182.5071108386733
+      }
+    },
+    {
+      "rule": "fixed",
+      "budget": 12500.0,
+      "status": 2,
+      "objective": 1180.951856821488,
+      "bound": 1181.0679282459269,
+      "elapsed": 9.992417099999997,
+      "total": 12500.000000716203,
+      "log_sum": 1180.9518561115713,
+      "minimum": 18.82202028064418,
+      "maxima": {
+        "Gas": 412.194665523249,
+        "Power": 116.1094124085105,
+        "Water": 66.62926022762949
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 3725.2163850703705,
+        "Power": 5379.099377802994,
+        "Water": 3395.6842378428364
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 10900.0,
+      "status": 2,
+      "objective": 945.4627708575815,
+      "bound": 945.555611022581,
+      "elapsed": 1.6982871000000017,
+      "total": 10899.999999998376,
+      "log_sum": 945.4627707567148,
+      "minimum": 1.6296946601076499,
+      "maxima": {
+        "Gas": 351.35,
+        "Power": 86.0,
+        "Water": 55.16699999999765
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 4018.531443651366,
+        "Power": 4522.29569095635,
+        "Water": 2359.172865390664
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 11000.0,
+      "status": 2,
+      "objective": 988.4757407461752,
+      "bound": 988.5705478253941,
+      "elapsed": 1.7962553999999926,
+      "total": 10999.999999996957,
+      "log_sum": 988.4757406459283,
+      "minimum": 3.1580460277602955,
+      "maxima": {
+        "Gas": 351.35,
+        "Power": 86.0,
+        "Water": 55.16699999999765
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 4024.669322398105,
+        "Power": 4573.589865894113,
+        "Water": 2401.7408117047353
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 11250.0,
+      "status": 2,
+      "objective": 1042.1314215852658,
+      "bound": 1042.2339555204387,
+      "elapsed": 5.916764900000004,
+      "total": 11249.99999883671,
+      "log_sum": 1042.1314207638036,
+      "minimum": 6.2469443003216725,
+      "maxima": {
+        "Gas": 351.35,
+        "Power": 86.0,
+        "Water": 55.16699999999765
+      },
+      "recheck_failure": {
+        "reverse_mismatch": 8.693174784468738e-07,
+        "allowance": 1e-06
+      },
+      "layer_totals": {
+        "Gas": 4037.0511669085568,
+        "Power": 4701.158821735137,
+        "Water": 2511.790010193011
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 11440.774734099938,
+      "status": 2,
+      "objective": 1069.1320705773608,
+      "bound": 1069.234242823866,
+      "elapsed": 1.6332842999999997,
+      "total": 11440.77473402867,
+      "log_sum": 1069.1320704043599,
+      "minimum": 7.912547619679344,
+      "maxima": {
+        "Gas": 351.34999999999985,
+        "Power": 86.0,
+        "Water": 55.16699999999765
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 4043.6824619292647,
+        "Power": 4792.186334277137,
+        "Water": 2604.9059378222682
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 11750.0,
+      "status": 2,
+      "objective": 1103.0888486296835,
+      "bound": 1103.1977295519503,
+      "elapsed": 6.442204000000004,
+      "total": 11750.000000885264,
+      "log_sum": 1103.0888469045583,
+      "minimum": 10.331477553640514,
+      "maxima": {
+        "Gas": 351.35,
+        "Power": 86.0,
+        "Water": 55.16699999999766
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 4053.325914076296,
+        "Power": 4931.553738580027,
+        "Water": 2765.1203482289498
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 12000.0,
+      "status": 2,
+      "objective": 1125.46265103974,
+      "bound": 1125.5734621956778,
+      "elapsed": 6.4622123000000045,
+      "total": 11999.999997800514,
+      "log_sum": 1125.4626488594033,
+      "minimum": 12.041653958755731,
+      "maxima": {
+        "Gas": 351.35,
+        "Power": 86.0,
+        "Water": 55.16699999999765
+      },
+      "recheck_failure": null,
+      "layer_totals": {
+        "Gas": 4061.249925671262,
+        "Power": 5048.487569484979,
+        "Water": 2890.2625026442734
+      }
+    },
+    {
+      "rule": "moving",
+      "budget": 12500.0,
+      "status": 2,
+      "objective": 1162.3400110166915,
+      "bound": 1162.4550490668148,
+      "elapsed": 8.322531499999982,
+      "total": 12499.999996848057,
+      "log_sum": 1162.340009254837,
+      "minimum": 15.14658077634408,
+      "maxima": {
+        "Gas": 351.35,
+        "Power": 86.0,
+        "Water": 55.16699999999766
+      },
+      "recheck_failure": {
+        "reverse_mismatch": 5.8310327233357384e-08,
+        "allowance": 1e-07
+      },
+      "layer_totals": {
+        "Gas": 4081.7726481555037,
+        "Power": 5294.746257368116,
+        "Water": 3123.4810913244437
+      }
+    }
+  ],
+  "gas_route": {
+    "Gas_node_1-Gas_node_5": {
+      "fixed_capacity": 417.1116180882633,
+      "moving_capacity": 351.34999999999974,
+      "fixed_flow": [
+        417.1116169594816,
+        417.1116190882633
+      ],
+      "moving_flow": [
+        351.349999,
+        351.35000099999974
+      ]
+    },
+    "Gas_node_1-Gas_node_13": {
+      "fixed_capacity": 285.5883819567072,
+      "moving_capacity": 351.3499999999995,
+      "fixed_flow": [
+        285.58838076770405,
+        285.5883829567072
+      ],
+      "moving_flow": [
+        351.34999900000037,
+        351.35000099999985
+      ]
+    },
+    "Gas_node_13-Gas_node_6": {
+      "fixed_capacity": 20.288381994731992,
+      "moving_capacity": 86.05,
+      "fixed_flow": [
+        20.28838076770404,
+        20.28838295670721
+      ],
+      "moving_flow": [
+        86.04999900000033,
+        86.05000099999982
+      ]
+    },
+    "Gas_node_6-Gas_node_11": {
+      "fixed_capacity": 13.056771785532248,
+      "moving_capacity": 68.35,
+      "fixed_flow": [
+        2.5883807677040434,
+        2.5883829567072105
+      ],
+      "moving_flow": [
+        68.34999900000032,
+        68.35000099999982
+      ]
+    },
+    "Gas_node_11-Gas_node_2": {
+      "fixed_capacity": 15.011618232295888,
+      "moving_capacity": 50.74999999999983,
+      "fixed_flow": [
+        -15.011619232295958,
+        -15.011617043292791
+      ],
+      "moving_flow": [
+        50.74999900000032,
+        50.75000099999983
+      ]
+    },
+    "Gas_node_2-Gas_node_10": {
+      "fixed_capacity": 16.388382040518422,
+      "moving_capacity": 82.15,
+      "fixed_flow": [
+        16.38838076770403,
+        16.38838295670721
+      ],
+      "moving_flow": [
+        82.14999900000032,
+        82.15000099999983
+      ]
+    },
+    "Gas_node_10-Gas_node_4": {
+      "fixed_capacity": 25.311223999137486,
+      "moving_capacity": 76.6786792552299,
+      "fixed_flow": [
+        25.31122293044649,
+        25.311224999137487
+      ],
+      "moving_flow": [
+        76.67867823759136,
+        76.67868025522989
+      ]
+    },
+    "Gas_node_5-Gas_node_10": {
+      "fixed_capacity": 22.32284207250886,
+      "moving_capacity": 7.928683137358709,
+      "fixed_flow": [
+        22.322839973739278,
+        22.32284307250886
+      ],
+      "moving_flow": [
+        7.928677237591523,
+        7.928681255229571
+      ]
+    },
+    "Gas_node_5-Gas_node_4": {
+      "fixed_capacity": 129.58877606955352,
+      "moving_capacity": 78.22132076240865,
+      "fixed_flow": [
+        129.5887750008625,
+        129.58877706955352
+      ],
+      "moving_flow": [
+        78.22131974477011,
+        78.22132176240865
+      ]
+    }
+  },
+  "recheck": {
+    "benchmark": {
+      "points": 19,
+      "passed": 19,
+      "failures": []
+    },
+    "repeated_arc": {
+      "points": 19,
+      "passed": 18,
+      "failures": [
+        {
+          "reverse_mismatch": 3.6998243402308617e-06,
+          "allowance": 1e-05,
+          "row": 18
+        }
+      ]
+    },
+    "fixed": {
+      "points": 19,
+      "passed": 18,
+      "failures": [
+        {
+          "reverse_mismatch": 4.395492112507782e-06,
+          "allowance": 1e-05,
+          "row": 17
+        }
+      ]
+    },
+    "moving": {
+      "points": 18,
+      "passed": 14,
+      "failures": [
+        {
+          "reverse_mismatch": 1.058882986626486e-06,
+          "allowance": 1e-07,
+          "row": 14
+        },
+        {
+          "reverse_mismatch": 1.505234251908405e-06,
+          "allowance": 1e-06,
+          "row": 15
+        },
+        {
+          "reverse_mismatch": 1.2892786322993288e-06,
+          "allowance": 1e-06,
+          "row": 16
+        },
+        {
+          "reverse_mismatch": 2.445458349598084e-06,
+          "allowance": 1e-06,
+          "row": 17
+        }
+      ]
+    }
+  },
+  "decay_sensitivity": [
+    {
+      "decay": 0.98,
+      "points": 13,
+      "elapsed": 130.33063990000002,
+      "last_total": 13270.860068740509,
+      "last_log_sum": 1206.9711210606695,
+      "last_minimum": 19.566736584050854,
+      "last_maxima": {
+        "Gas": 351.35,
+        "Power": 86.00000166090821,
+        "Water": 55.166999999995824
+      },
+      "floor_total": 10857.36458749333
+    },
+    {
+      "decay": 0.95,
+      "points": 9,
+      "elapsed": 77.38778260000004,
+      "last_total": 11973.993574734704,
+      "last_log_sum": 1123.2871482110772,
+      "last_minimum": 11.86692644665706,
+      "last_maxima": {
+        "Gas": 351.350000143997,
+        "Power": 86.00009226314172,
+        "Water": 55.16702156133983
+      },
+      "floor_total": 10857.363231664673
+    },
+    {
+      "decay": 0.9,
+      "points": 6,
+      "elapsed": 45.892041800000015,
+      "last_total": 17555.09441685751,
+      "last_log_sum": 1357.7593081781608,
+      "last_minimum": 37.91011533394181,
+      "last_maxima": {
+        "Gas": 351.3500004238056,
+        "Power": 86.00034901504398,
+        "Water": 55.16700024238132
+      },
+      "floor_total": 10857.359720175413
+    }
+  ],
+  "elapsed": 416.0193244
+}
